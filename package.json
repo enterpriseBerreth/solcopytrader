@@ -1,0 +1,23 @@
+{
+  "name": "copybot-solana",
+  "version": "1.0.0",
+  "description": "COPYBOT — Solana copytrade bot with wallet monitoring, auto-seeding, and Telegram alerts",
+  "type": "module",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0"
+  }
+}
