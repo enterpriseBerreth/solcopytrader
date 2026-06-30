@@ -111,6 +111,15 @@ export class CopyTrader {
       `Size: $${sizeUsd.toFixed(2)} | Price: $${fmtPrice(priceUsd)} | ` +
       `Budget: $${this.state.budgetRemaining.toFixed(2)}`
     );
+
+    await this.telegram.sendBuyAlert({
+      copiedWallet: swap.walletLabel,
+      tokenName: `${swap.tokenSymbol} (${swap.tokenName})`,
+      priceUsd,
+      sizeUsd,
+      budgetRemaining: this.state.budgetRemaining,
+      openSlots: `${this.openPositionCount}/${CONFIG.MAX_CONCURRENT_TRADES}`,
+    });
   }
 
   private async handleSell(swap: DetectedSwap): Promise<void> {

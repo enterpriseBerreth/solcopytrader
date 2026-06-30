@@ -10,7 +10,7 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T | nul
   try {
     const res = await fetch(url, {
       ...options,
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(30_000),
     });
     if (!res.ok) {
       log.error(MODULE, `HTTP ${res.status}: ${url.split('?')[0]}`);

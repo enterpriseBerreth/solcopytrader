@@ -48,6 +48,30 @@ export class TelegramAlert {
     await this.send(msg);
   }
 
+  // ── TRADE OPENED (sent when buy is copied) ──
+
+  async sendBuyAlert(data: {
+    copiedWallet: string;
+    tokenName: string;
+    priceUsd: number;
+    sizeUsd: number;
+    budgetRemaining: number;
+    openSlots: string;
+  }): Promise<void> {
+    const msg = [
+      `\u{1F4E5} *COPYBOT \\- TRADE OPENED*`,
+      ``,
+      `*Copied Wallet:* ${this.esc(data.copiedWallet)}`,
+      `*Token:* ${this.esc(data.tokenName)}`,
+      `*Entry Price:* \\$${this.esc(fmtPrice(data.priceUsd))}`,
+      `*Size:* \\$${this.esc(data.sizeUsd.toFixed(2))}`,
+      `*Budget Remaining:* \\$${this.esc(data.budgetRemaining.toFixed(2))}`,
+      `*Open Positions:* ${this.esc(data.openSlots)}`,
+    ].join('\n');
+
+    await this.send(msg);
+  }
+
   // ── BOT STOPPED ──
 
   async sendStoppedAlert(reason: string): Promise<void> {
@@ -151,4 +175,12 @@ export class TelegramAlert {
   private esc(text: string): string {
     return text.replace(/[_*[\]()~`>#+=|{}.!\\-]/g, '\\$&');
   }
+}
+
+function fmtPrice(price: number): string {
+  if (price === 0) return 'N/A';
+  if (price < 0.00001) return price.toExponential(4);
+  if (price < 0.01) return price.toFixed(8);
+  if (price < 1) return price.toFixed(6);
+  return price.toFixed(4);
 }

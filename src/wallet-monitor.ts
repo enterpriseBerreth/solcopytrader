@@ -10,6 +10,7 @@ export class WalletMonitor {
   private seenSignatures: Set<string> = new Set();
   private pollInterval: ReturnType<typeof setInterval> | null = null;
   private initialScanDone: Set<string> = new Set();
+  private pollCount: number = 0;
 
   onSwapDetected: ((swap: DetectedSwap) => void) | null = null;
 
@@ -67,6 +68,11 @@ export class WalletMonitor {
   }
 
   private async pollAllWallets(): Promise<void> {
+    this.pollCount++;
+    // Log heartbeat every 60 polls (~5 minutes at 5s interval)
+    if (this.pollCount % 60 === 0) {
+      log.info(MODULE, `Heartbeat — poll #${this.pollCount}, ${this.wallets.size} wallets, ${this.seenSignatures.size} seen sigs`);
+    }
     for (const wallet of this.wallets.values()) {
       try {
         await this.pollWallet(wallet);
