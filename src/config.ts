@@ -46,7 +46,7 @@ export const CONFIG = {
   // ── API Endpoints ──
   SOLANA_RPC_URL,
   HELIUS_API_KEY: process.env.HELIUS_API_KEY || extractHeliusKey(SOLANA_RPC_URL),
-  HELIUS_API_BASE: 'https://api.helius.dev',
+  HELIUS_API_BASE: 'https://api.helius.xyz',
   JUPITER_PRICE_API: 'https://api.jup.ag/price/v2',
   DEXSCREENER_BASE: 'https://api.dexscreener.com',
 
