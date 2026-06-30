@@ -83,21 +83,57 @@ export function extractSwap(
   walletAddress: string,
   walletLabel: string
 ): DetectedSwap | null {
-  if (tx.type !== 'SWAP') return null;
+  const isSwap = tx.type === 'SWAP';
+  const isPump = isPumpFunTx(tx);
+
+  // Accept standard SWAP transactions + any pump.fun transaction
+  if (!isSwap && !isPump) return null;
 
   const swapEvent = tx.events?.swap;
 
   // Method 1: Use Helius swap event (preferred)
   if (swapEvent) {
-    return extractFromSwapEvent(tx, swapEvent, walletAddress, walletLabel);
+    const result = extractFromSwapEvent(tx, swapEvent, walletAddress, walletLabel);
+    if (result && isPump) result.tokenName = '[pump.fun]';
+    return result;
   }
 
-  // Method 2: Fallback to token/native transfers
-  return extractFromTransfers(tx, walletAddress, walletLabel);
+  // Method 2: Fallback to token/native transfers (covers pump.fun bonding curve txs)
+  const result = extractFromTransfers(tx, walletAddress, walletLabel);
+  if (result && isPump) result.tokenName = '[pump.fun]';
+  return result;
 }
+
+// Pump.fun program IDs
+const PUMP_FUN_PROGRAMS = new Set([
+  '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P',   // pump.fun v1
+  'BSfD6SHZigAfDWSjzD5Q41jw8LmKwtmjMCJKLoR5KUGq',   // pump.fun fee account
+  'Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp18W',   // pump.fun v2 / pump-amm
+  'PSwapMdSai8tjrEXcxFeQth87xC4rRsa4VA5mhGhXkP',    // pumpswap router
+  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA',    // pump.fun AMM
+]);
 
 function isSolMint(mint: string): boolean {
   return mint === CONFIG.SOL_MINT || mint === CONFIG.WSOL_MINT;
+}
+
+function isPumpFunTx(tx: HeliusTransaction): boolean {
+  // Check source field (Helius labels these)
+  const src = (tx.source || '').toUpperCase();
+  if (src.includes('PUMP') || src.includes('PUMPFUN') || src === 'PUMP_FUN') return true;
+
+  // Check description for pump.fun mentions
+  const desc = (tx.description || '').toLowerCase();
+  if (desc.includes('pump') || desc.includes('pumpfun') || desc.includes('pump.fun')) return true;
+
+  // Check if any account in the transaction is a known pump.fun program
+  if (tx.accountData) {
+    for (const acc of tx.accountData as Array<{ account?: string }>) {
+      if (acc.account && PUMP_FUN_PROGRAMS.has(acc.account)) return true;
+    }
+  }
+
+  return false;
 }
 
 function extractFromSwapEvent(
@@ -300,7 +336,7 @@ export async function getTokenRecentBuyers(tokenMint: string): Promise<string[]>
     const batch = signatures.slice(i, i + CONFIG.TX_PARSE_BATCH_SIZE);
     const parsed = await parseTransactions(batch);
     for (const tx of parsed) {
-      if (tx.type !== 'SWAP') continue;
+      if (tx.type !== 'SWAP' && !isPumpFunTx(tx)) continue;
       for (const transfer of tx.tokenTransfers) {
         if (transfer.mint === tokenMint && transfer.toUserAccount) {
           buyers.push(transfer.toUserAccount);

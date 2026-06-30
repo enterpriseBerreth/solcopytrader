@@ -29,6 +29,7 @@ export interface HeliusTransaction {
   timestamp: number;
   nativeTransfers: NativeTransfer[];
   tokenTransfers: TokenTransfer[];
+  accountData?: Array<{ account: string; nativeBalanceChange: number; tokenBalanceChanges: unknown[] }>;
   events?: {
     swap?: SwapEvent;
   };
