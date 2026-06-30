@@ -134,6 +134,18 @@ export class CopyTrader {
       return;
     }
 
+    // Use the copied wallet's actual sell price for accurate PNL
+    if (swap.priceUsd > 0) {
+      position.currentPriceUsd = swap.priceUsd;
+    } else {
+      // Fallback: fetch current price
+      const prices = await getJupiterPrices([swap.tokenMint]);
+      const freshPrice = prices.get(swap.tokenMint);
+      if (freshPrice && freshPrice > 0) {
+        position.currentPriceUsd = freshPrice;
+      }
+    }
+
     await this.closePosition(position, `Copied exit from ${swap.walletLabel}`);
   }
 
@@ -179,8 +191,8 @@ export class CopyTrader {
     await this.telegram.sendTradeAlert({
       copiedWallet: position.copiedWalletLabel,
       tokenName: `${position.tokenSymbol} (${position.tokenName})`,
-      capitalBeforeBuy: position.capitalBeforeBuy,
-      capitalAfterSell: this.state.budgetRemaining,
+      capitalBeforeBuy: position.sizeUsd,
+      capitalAfterSell: position.sizeUsd + pnlUsd,
       pnlUsd,
       pnlPct,
     });
