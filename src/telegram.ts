@@ -21,28 +21,38 @@ export class TelegramAlert {
     }
   }
 
-  // ── TRADE CLOSED (sent AFTER exit only) ──
+  // ── TRADE CLOSED / PARTIAL SELL ──
 
   async sendTradeAlert(data: {
     copiedWallet: string;
     tokenName: string;
+    entryPriceUsd: number;
+    exitPriceUsd: number;
     capitalBeforeBuy: number;
     capitalAfterSell: number;
     pnlUsd: number;
     pnlPct: number;
+    sellPct: number;
+    isPartial: boolean;
   }): Promise<void> {
     const pnlEmoji = data.pnlUsd >= 0 ? '\u{1F7E2}' : '\u{1F534}';
     const sign = data.pnlUsd >= 0 ? '\\+' : '\\-';
+    const header = data.isPartial
+      ? `${pnlEmoji} *COPYBOT \\- PARTIAL SELL \\(${this.esc(data.sellPct.toFixed(0))}%\\)*`
+      : `${pnlEmoji} *COPYBOT \\- TRADE CLOSED*`;
 
     const msg = [
-      `${pnlEmoji} *COPYBOT \\- TRADE CLOSED*`,
+      header,
       ``,
       `*Copied Wallet:* ${this.esc(data.copiedWallet)}`,
       `*Token:* ${this.esc(data.tokenName)}`,
-      `*Capital Before Buy:* \\$${this.esc(data.capitalBeforeBuy.toFixed(2))}`,
-      `*Capital After Sell:* \\$${this.esc(data.capitalAfterSell.toFixed(2))}`,
+      `*Entry Price:* \\$${this.esc(fmtPrice(data.entryPriceUsd))}`,
+      `*Exit Price:* \\$${this.esc(fmtPrice(data.exitPriceUsd))}`,
+      `*Capital In:* \\$${this.esc(data.capitalBeforeBuy.toFixed(2))}`,
+      `*Capital Out:* \\$${this.esc(data.capitalAfterSell.toFixed(2))}`,
       `*PNL:* ${sign}\\$${this.esc(Math.abs(data.pnlUsd).toFixed(2))}`,
-      `*PNL %:* ${sign}${this.esc(data.pnlPct.toFixed(2))}%`,
+      `*PNL %:* ${sign}${this.esc(Math.abs(data.pnlPct).toFixed(2))}%`,
+      `*Sold:* ${this.esc(data.sellPct.toFixed(0))}% of position`,
     ].join('\n');
 
     await this.send(msg);

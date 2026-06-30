@@ -105,8 +105,14 @@ export interface CopyPosition {
   currentPriceUsd: number;
   exitPriceUsd: number;
 
-  sizeUsd: number;
+  sizeUsd: number;              // original trade size ($30)
+  remainingSizeUsd: number;     // remaining after partial sells
   capitalBeforeBuy: number;
+
+  // Track copied wallet's token amounts for partial sell support
+  copiedWalletEntryTokens: number;
+  copiedWalletRemainingTokens: number;
+  totalRealizedPnlUsd: number;  // accumulated PNL from partial sells
 
   entryTime: number;
   exitTime: number;

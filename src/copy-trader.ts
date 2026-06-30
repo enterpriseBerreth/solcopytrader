@@ -92,7 +92,11 @@ export class CopyTrader {
       currentPriceUsd: priceUsd,
       exitPriceUsd: 0,
       sizeUsd,
+      remainingSizeUsd: sizeUsd,
       capitalBeforeBuy: capitalBefore,
+      copiedWalletEntryTokens: swap.tokenAmount,
+      copiedWalletRemainingTokens: swap.tokenAmount,
+      totalRealizedPnlUsd: 0,
       entryTime: Date.now(),
       exitTime: 0,
       status: 'open',
@@ -134,22 +138,91 @@ export class CopyTrader {
       return;
     }
 
-    // Use the copied wallet's actual sell price for accurate PNL
-    if (swap.priceUsd > 0) {
-      position.currentPriceUsd = swap.priceUsd;
-    } else {
-      // Fallback: fetch current price
+    // Get exit price from the actual sell transaction
+    let exitPrice = swap.priceUsd;
+    if (exitPrice <= 0) {
       const prices = await getJupiterPrices([swap.tokenMint]);
-      const freshPrice = prices.get(swap.tokenMint);
-      if (freshPrice && freshPrice > 0) {
-        position.currentPriceUsd = freshPrice;
-      }
+      exitPrice = prices.get(swap.tokenMint) || position.currentPriceUsd;
     }
+    position.currentPriceUsd = exitPrice;
 
-    await this.closePosition(position, `Copied exit from ${swap.walletLabel}`);
+    // Calculate what percentage of their original position they sold
+    const sellTokens = Math.min(swap.tokenAmount, position.copiedWalletRemainingTokens);
+    const sellPct = position.copiedWalletEntryTokens > 0
+      ? sellTokens / position.copiedWalletEntryTokens
+      : 1;
+
+    // Calculate our sell portion (based on original entry size)
+    const portionSizeUsd = position.sizeUsd * sellPct;
+
+    // Calculate PNL % (wallet's actual price performance)
+    const pnlPct = position.entryPriceUsd > 0
+      ? ((exitPrice - position.entryPriceUsd) / position.entryPriceUsd) * 100
+      : 0;
+    const portionPnlUsd = portionSizeUsd * (pnlPct / 100);
+
+    // Update position tracking
+    position.copiedWalletRemainingTokens -= sellTokens;
+    position.remainingSizeUsd -= portionSizeUsd;
+    position.totalRealizedPnlUsd += portionPnlUsd;
+
+    // Return proceeds to budget
+    const proceeds = portionSizeUsd + portionPnlUsd;
+    this.state.budgetRemaining += Math.max(0, proceeds);
+    this.state.totalPnl += portionPnlUsd;
+
+    const isFullClose = position.copiedWalletRemainingTokens <= 0 || position.remainingSizeUsd <= 0.01;
+    const sellPctDisplay = Math.min(sellPct * 100, 100);
+
+    const holdTime = formatHoldTime(Date.now() - position.entryTime);
+    const sign = portionPnlUsd >= 0 ? '+' : '';
+
+    log.trade(
+      MODULE,
+      `COPY SELL ${isFullClose ? '(FULL)' : `(${sellPctDisplay.toFixed(0)}%)`} ${position.tokenSymbol} | ` +
+      `PNL: ${sign}$${portionPnlUsd.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%) | ` +
+      `Portion: $${portionSizeUsd.toFixed(2)} | Hold: ${holdTime}`
+    );
+
+    // Send Telegram alert for this sell
+    await this.telegram.sendTradeAlert({
+      copiedWallet: position.copiedWalletLabel,
+      tokenName: `${position.tokenSymbol} (${position.tokenName})`,
+      entryPriceUsd: position.entryPriceUsd,
+      exitPriceUsd: exitPrice,
+      capitalBeforeBuy: portionSizeUsd,
+      capitalAfterSell: portionSizeUsd + portionPnlUsd,
+      pnlUsd: portionPnlUsd,
+      pnlPct,
+      sellPct: sellPctDisplay,
+      isPartial: !isFullClose,
+    });
+
+    if (isFullClose) {
+      // Fully close the position
+      position.exitPriceUsd = exitPrice;
+      position.exitTime = Date.now();
+      position.status = 'closed';
+      position.pnlUsd = position.totalRealizedPnlUsd;
+      position.pnlPct = position.entryPriceUsd > 0
+        ? ((exitPrice - position.entryPriceUsd) / position.entryPriceUsd) * 100
+        : 0;
+      position.exitReason = `Copied exit from ${swap.walletLabel}`;
+
+      if (position.totalRealizedPnlUsd >= 0) this.state.wins++;
+      else this.state.losses++;
+
+      this.state.positions.delete(position.tokenMint);
+      this.tokenBuyerMap.delete(position.tokenMint);
+      this.state.closedPositions.push(position);
+
+      log.info(MODULE, `Position fully closed — total realized PNL: ${sign}$${position.totalRealizedPnlUsd.toFixed(2)}`);
+    } else {
+      log.info(MODULE, `Position partially closed — remaining: $${position.remainingSizeUsd.toFixed(2)} (${((position.copiedWalletRemainingTokens / position.copiedWalletEntryTokens) * 100).toFixed(0)}% of tokens)`);
+    }
   }
 
-  // ── Close position ──
+  // ── Close position (used by safety exits — always closes 100%) ──
 
   private async closePosition(position: CopyPosition, reason: string): Promise<void> {
     const currentPrice = position.currentPriceUsd;
@@ -159,20 +232,22 @@ export class CopyTrader {
     if (entryPrice > 0) {
       pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;
     }
-    const pnlUsd = position.sizeUsd * (pnlPct / 100);
-    const proceeds = position.sizeUsd + pnlUsd;
+    // PNL on remaining position + any already realized from partial sells
+    const remainingPnlUsd = position.remainingSizeUsd * (pnlPct / 100);
+    const totalPnlUsd = position.totalRealizedPnlUsd + remainingPnlUsd;
+    const proceeds = position.remainingSizeUsd + remainingPnlUsd;
 
     position.exitPriceUsd = currentPrice;
     position.exitTime = Date.now();
     position.status = 'closed';
-    position.pnlUsd = pnlUsd;
+    position.pnlUsd = totalPnlUsd;
     position.pnlPct = pnlPct;
     position.exitReason = reason;
 
-    this.state.budgetRemaining += proceeds;
-    this.state.totalPnl += pnlUsd;
+    this.state.budgetRemaining += Math.max(0, proceeds);
+    this.state.totalPnl += remainingPnlUsd;
 
-    if (pnlUsd >= 0) this.state.wins++;
+    if (totalPnlUsd >= 0) this.state.wins++;
     else this.state.losses++;
 
     this.state.positions.delete(position.tokenMint);
@@ -180,21 +255,25 @@ export class CopyTrader {
     this.state.closedPositions.push(position);
 
     const holdTime = formatHoldTime(position.exitTime - position.entryTime);
-    const sign = pnlUsd >= 0 ? '+' : '';
+    const sign = totalPnlUsd >= 0 ? '+' : '';
 
     log.trade(
       MODULE,
-      `COPY SELL ${position.tokenSymbol} | PNL: ${sign}$${pnlUsd.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%) | ` +
+      `COPY SELL (FULL) ${position.tokenSymbol} | PNL: ${sign}$${totalPnlUsd.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%) | ` +
       `Reason: ${reason} | Hold: ${holdTime}`
     );
 
     await this.telegram.sendTradeAlert({
       copiedWallet: position.copiedWalletLabel,
       tokenName: `${position.tokenSymbol} (${position.tokenName})`,
-      capitalBeforeBuy: position.sizeUsd,
-      capitalAfterSell: position.sizeUsd + pnlUsd,
-      pnlUsd,
+      entryPriceUsd: position.entryPriceUsd,
+      exitPriceUsd: currentPrice,
+      capitalBeforeBuy: position.remainingSizeUsd,
+      capitalAfterSell: position.remainingSizeUsd + remainingPnlUsd,
+      pnlUsd: remainingPnlUsd,
       pnlPct,
+      sellPct: 100,
+      isPartial: false,
     });
   }
 
