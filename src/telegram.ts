@@ -31,17 +31,17 @@ export class TelegramAlert {
     pnlPct: number;
   }): Promise<void> {
     const pnlEmoji = data.pnlUsd >= 0 ? '\u{1F7E2}' : '\u{1F534}';
-    const sign = data.pnlUsd >= 0 ? '+' : '';
+    const sign = data.pnlUsd >= 0 ? '\\+' : '\\-';
 
     const msg = [
       `${pnlEmoji} *COPYBOT \\- TRADE CLOSED*`,
       ``,
       `*Copied Wallet:* ${this.esc(data.copiedWallet)}`,
       `*Token:* ${this.esc(data.tokenName)}`,
-      `*Capital Before Buy:* \\$${data.capitalBeforeBuy.toFixed(2)}`,
-      `*Capital After Sell:* \\$${data.capitalAfterSell.toFixed(2)}`,
-      `*PNL:* ${sign}\\$${Math.abs(data.pnlUsd).toFixed(2)}`,
-      `*PNL %:* ${sign}${data.pnlPct.toFixed(2)}%`,
+      `*Capital Before Buy:* \\$${this.esc(data.capitalBeforeBuy.toFixed(2))}`,
+      `*Capital After Sell:* \\$${this.esc(data.capitalAfterSell.toFixed(2))}`,
+      `*PNL:* ${sign}\\$${this.esc(Math.abs(data.pnlUsd).toFixed(2))}`,
+      `*PNL %:* ${sign}${this.esc(data.pnlPct.toFixed(2))}%`,
     ].join('\n');
 
     await this.send(msg);
