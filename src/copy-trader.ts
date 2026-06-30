@@ -10,6 +10,8 @@ export class CopyTrader {
   private state: BotState;
   private telegram: TelegramAlert;
   private priceInterval: ReturnType<typeof setInterval> | null = null;
+  // Track which wallets have signaled a buy for each token — reject if multiple wallets buy the same token
+  private tokenBuyerMap: Map<string, string> = new Map(); // tokenMint → first walletAddress that bought it
 
   constructor(telegram: TelegramAlert) {
     this.telegram = telegram;
@@ -51,6 +53,13 @@ export class CopyTrader {
   }
 
   private async handleBuy(swap: DetectedSwap): Promise<void> {
+    // Check if another watched wallet already bought this token — only unique-per-wallet buys allowed
+    const existingBuyer = this.tokenBuyerMap.get(swap.tokenMint);
+    if (existingBuyer && existingBuyer !== swap.walletAddress) {
+      log.info(MODULE, `${swap.walletLabel} bought ${swap.tokenSymbol} but another wallet already bought it — skipping (unique-per-wallet rule)`);
+      return;
+    }
+
     if (this.hasPosition(swap.tokenMint)) {
       log.info(MODULE, `Already holding ${swap.tokenSymbol} — skipping duplicate buy`);
       return;
@@ -93,6 +102,7 @@ export class CopyTrader {
     };
 
     this.state.positions.set(swap.tokenMint, position);
+    this.tokenBuyerMap.set(swap.tokenMint, swap.walletAddress);
     this.state.tradesExecuted++;
 
     log.trade(
@@ -145,6 +155,7 @@ export class CopyTrader {
     else this.state.losses++;
 
     this.state.positions.delete(position.tokenMint);
+    this.tokenBuyerMap.delete(position.tokenMint);
     this.state.closedPositions.push(position);
 
     const holdTime = formatHoldTime(position.exitTime - position.entryTime);
