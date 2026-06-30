@@ -1,5 +1,6 @@
 import { CONFIG } from './config.js';
 import { log } from './logger.js';
+import type { WalletPerformance } from './copy-trader.js';
 
 const MODULE = 'TELEGRAM';
 
@@ -74,6 +75,49 @@ export class TelegramAlert {
     ].join('\n');
 
     await this.send(msg);
+  }
+
+  // ── DAILY WALLET RANKING (sent at midnight MST) ──
+
+  async sendDailyRanking(data: {
+    wallets: WalletPerformance[];
+    totalPnl: number;
+    budgetRemaining: number;
+    walletCount: number;
+  }): Promise<void> {
+    const lines: string[] = [
+      `\u{1F4CA} *COPYBOT \\- DAILY WALLET REPORT*`,
+      ``,
+    ];
+
+    if (data.wallets.length === 0) {
+      lines.push(`_No trades recorded yet\\._`);
+    } else {
+      for (let i = 0; i < data.wallets.length; i++) {
+        const w = data.wallets[i];
+        const rank = i + 1;
+        const medal = rank === 1 ? '\u{1F947}' : rank === 2 ? '\u{1F948}' : rank === 3 ? '\u{1F949}' : `${rank}\\.`;
+        const totalPnl = w.pnlUsd + w.unrealizedPnl;
+        const sign = totalPnl >= 0 ? '\\+' : '\\-';
+        const winRate = w.trades > 0 ? ((w.wins / w.trades) * 100).toFixed(0) : '0';
+
+        lines.push(`${medal} *${this.esc(w.label)}*`);
+        lines.push(`   PNL: ${sign}\\$${this.esc(Math.abs(totalPnl).toFixed(2))} \\| Trades: ${w.trades} \\| W/L: ${w.wins}/${w.losses} \\(${this.esc(winRate)}%\\)`);
+        if (w.openTrades > 0) {
+          const uSign = w.unrealizedPnl >= 0 ? '\\+' : '\\-';
+          lines.push(`   Open: ${w.openTrades} \\| Unrealized: ${uSign}\\$${this.esc(Math.abs(w.unrealizedPnl).toFixed(2))}`);
+        }
+        lines.push(``);
+      }
+    }
+
+    const totalSign = data.totalPnl >= 0 ? '\\+' : '\\-';
+    lines.push(`\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-\\-`);
+    lines.push(`*Total PNL:* ${totalSign}\\$${this.esc(Math.abs(data.totalPnl).toFixed(2))}`);
+    lines.push(`*Budget:* \\$${this.esc(data.budgetRemaining.toFixed(2))} / \\$${CONFIG.STARTING_BUDGET_USD}`);
+    lines.push(`*Wallets Tracked:* ${data.walletCount}`);
+
+    await this.send(lines.join('\n'));
   }
 
   // ── Internal ──

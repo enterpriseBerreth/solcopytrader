@@ -234,8 +234,45 @@ export class CopyTrader {
     return this.state.budgetRemaining;
   }
 
+  get totalPnl(): number {
+    return this.state.totalPnl;
+  }
+
   get closedPositions(): CopyPosition[] {
     return this.state.closedPositions;
+  }
+
+  // ── Per-wallet performance stats (for daily report) ──
+
+  getWalletPerformance(): WalletPerformance[] {
+    const map = new Map<string, WalletPerformance>();
+
+    // Aggregate closed positions by wallet
+    for (const p of this.state.closedPositions) {
+      let wp = map.get(p.copiedWallet);
+      if (!wp) {
+        wp = { wallet: p.copiedWallet, label: p.copiedWalletLabel, trades: 0, wins: 0, losses: 0, pnlUsd: 0, openTrades: 0, unrealizedPnl: 0 };
+        map.set(p.copiedWallet, wp);
+      }
+      wp.trades++;
+      wp.pnlUsd += p.pnlUsd;
+      if (p.pnlUsd >= 0) wp.wins++;
+      else wp.losses++;
+    }
+
+    // Include open positions (unrealized PNL)
+    for (const p of this.state.positions.values()) {
+      let wp = map.get(p.copiedWallet);
+      if (!wp) {
+        wp = { wallet: p.copiedWallet, label: p.copiedWalletLabel, trades: 0, wins: 0, losses: 0, pnlUsd: 0, openTrades: 0, unrealizedPnl: 0 };
+        map.set(p.copiedWallet, wp);
+      }
+      wp.openTrades++;
+      wp.unrealizedPnl += p.pnlUsd;
+    }
+
+    // Sort by total PNL (realized + unrealized) descending
+    return Array.from(map.values()).sort((a, b) => (b.pnlUsd + b.unrealizedPnl) - (a.pnlUsd + a.unrealizedPnl));
   }
 
   printStatus(): void {
@@ -294,4 +331,15 @@ function formatHoldTime(ms: number): string {
   if (mins < 60) return `${mins}m ${secs % 60}s`;
   const hrs = Math.floor(mins / 60);
   return `${hrs}h ${mins % 60}m`;
+}
+
+export interface WalletPerformance {
+  wallet: string;
+  label: string;
+  trades: number;
+  wins: number;
+  losses: number;
+  pnlUsd: number;
+  openTrades: number;
+  unrealizedPnl: number;
 }

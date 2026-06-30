@@ -8,6 +8,7 @@ import { log } from './logger.js';
 const MODULE = 'COPYBOT';
 const STATUS_INTERVAL_MS = 60_000;
 const PRUNE_INTERVAL_MS = 10 * 60_000;
+const MST_OFFSET_HOURS = -7; // MST = UTC-7 (no daylight saving)
 
 async function main() {
   log.banner('COPYBOT — Solana Copytrade Bot');
@@ -68,6 +69,19 @@ async function main() {
     monitor.pruneSeenSignatures();
   }, PRUNE_INTERVAL_MS);
 
+  // Schedule daily wallet ranking at 12:00 AM MST
+  const dailyReportTimer = scheduleDailyReport(async () => {
+    log.info(MODULE, 'Sending daily wallet performance report...');
+    const wallets = trader.getWalletPerformance();
+    await telegram.sendDailyRanking({
+      wallets,
+      totalPnl: trader.totalPnl,
+      budgetRemaining: trader.budgetRemaining,
+      walletCount: monitor.walletCount,
+    });
+    log.success(MODULE, 'Daily report sent');
+  });
+
   // Graceful shutdown
   const shutdown = async (reason: string) => {
     log.info(MODULE, 'Shutting down...');
@@ -76,6 +90,7 @@ async function main() {
     seeder.stop();
     clearInterval(statusInterval);
     clearInterval(pruneInterval);
+    clearTimeout(dailyReportTimer);
 
     trader.printStatus();
     await telegram.sendStoppedAlert(reason);
@@ -104,6 +119,41 @@ async function main() {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Returns ms until next 12:00 AM MST (UTC-7)
+function msUntilMidnightMST(): number {
+  const now = new Date();
+  // Current time in MST
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60_000;
+  const mstMs = utcMs + MST_OFFSET_HOURS * 3600_000;
+  const mstNow = new Date(mstMs);
+
+  // Next midnight MST
+  const nextMidnight = new Date(mstNow);
+  nextMidnight.setHours(24, 0, 0, 0); // midnight of next day
+
+  const mstMidnightUtc = nextMidnight.getTime() - MST_OFFSET_HOURS * 3600_000 - now.getTimezoneOffset() * 60_000;
+  return mstMidnightUtc - now.getTime();
+}
+
+function scheduleDailyReport(callback: () => Promise<void>): ReturnType<typeof setTimeout> {
+  const ms = msUntilMidnightMST();
+  const hrs = (ms / 3600_000).toFixed(1);
+  log.info('SCHEDULER', `Daily report scheduled — next in ${hrs}h (12:00 AM MST)`);
+
+  return setTimeout(async function fire() {
+    try {
+      await callback();
+    } catch (err) {
+      log.error('SCHEDULER', `Daily report error: ${err}`);
+    }
+    // Reschedule for next midnight
+    const nextMs = msUntilMidnightMST();
+    const nextHrs = (nextMs / 3600_000).toFixed(1);
+    log.info('SCHEDULER', `Next daily report in ${nextHrs}h`);
+    setTimeout(fire, nextMs);
+  }, ms);
 }
 
 main().catch(async (err) => {
