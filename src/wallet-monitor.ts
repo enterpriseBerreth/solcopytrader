@@ -107,7 +107,15 @@ export class WalletMonitor {
 
       for (const tx of parsed) {
         const swap = extractSwap(tx, wallet.address, wallet.label);
-        if (!swap) continue;
+        if (!swap) {
+          // Log undetected transactions for debugging (only non-trivial ones)
+          const tokenXfers = tx.tokenTransfers?.length || 0;
+          const nativeXfers = tx.nativeTransfers?.length || 0;
+          if (tokenXfers > 0 || nativeXfers > 1) {
+            log.info(MODULE, `${wallet.label} — Skipped tx: type=${tx.type} src=${tx.source || 'n/a'} tokenXfers=${tokenXfers} nativeXfers=${nativeXfers} | ${tx.signature.slice(0, 12)}...`);
+          }
+          continue;
+        }
 
         const tokenInfo = await getTokenInfo(swap.tokenMint);
         swap.tokenSymbol = tokenInfo.symbol;

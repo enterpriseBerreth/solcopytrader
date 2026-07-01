@@ -83,25 +83,36 @@ export function extractSwap(
   walletAddress: string,
   walletLabel: string
 ): DetectedSwap | null {
-  const isSwap = tx.type === 'SWAP';
+  // Skip failed or irrelevant transactions
+  if (tx.type === 'COMPRESSED_NFT_MINT' || tx.type === 'NFT_MINT' ||
+      tx.type === 'NFT_SALE' || tx.type === 'NFT_LISTING' ||
+      tx.type === 'STAKE_SOL' || tx.type === 'UNSTAKE_SOL') {
+    return null;
+  }
+
   const isPump = isPumpFunTx(tx);
-
-  // Accept standard SWAP transactions + any pump.fun transaction
-  if (!isSwap && !isPump) return null;
-
   const swapEvent = tx.events?.swap;
 
-  // Method 1: Use Helius swap event (preferred)
+  // Method 1: Use Helius swap event (preferred — most accurate)
   if (swapEvent) {
     const result = extractFromSwapEvent(tx, swapEvent, walletAddress, walletLabel);
-    if (result && isPump) result.tokenName = '[pump.fun]';
+    if (result) {
+      if (isPump) result.tokenName = '[pump.fun]';
+      return result;
+    }
+  }
+
+  // Method 2: Detect from token/native transfers (catches ALL DEX trades)
+  // Works for: pump.fun, Raydium, Meteora, Orca, Jupiter routes, Moonshot, etc.
+  const result = extractFromTransfers(tx, walletAddress, walletLabel);
+  if (result) {
+    if (isPump) result.tokenName = '[pump.fun]';
+    const src = tx.source || tx.type || 'unknown';
+    log.info(MODULE, `Detected ${result.direction} via transfer fallback | type=${tx.type} source=${src} | ${walletLabel}`);
     return result;
   }
 
-  // Method 2: Fallback to token/native transfers (covers pump.fun bonding curve txs)
-  const result = extractFromTransfers(tx, walletAddress, walletLabel);
-  if (result && isPump) result.tokenName = '[pump.fun]';
-  return result;
+  return null;
 }
 
 // Pump.fun program IDs
