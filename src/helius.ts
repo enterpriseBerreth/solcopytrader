@@ -4,18 +4,48 @@ import { log } from './logger.js';
 
 const MODULE = 'HELIUS';
 
-// ── Fetch helper ──
+// ── Rate-limit backoff state ──
+let backoffMs = 0;
+let lastBackoffTime = 0;
+const MAX_BACKOFF_MS = 60_000;
+
+function applyBackoff(): void {
+  backoffMs = backoffMs === 0 ? 2_000 : Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+  lastBackoffTime = Date.now();
+}
+
+function resetBackoff(): void {
+  if (backoffMs > 0) {
+    log.info(MODULE, 'Rate limit cleared — resuming normal polling');
+  }
+  backoffMs = 0;
+}
+
+function isBackedOff(): boolean {
+  if (backoffMs === 0) return false;
+  return (Date.now() - lastBackoffTime) < backoffMs;
+}
+
+// ── Fetch helper with 429 backoff ──
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T | null> {
+  if (isBackedOff()) return null; // Skip while in backoff
+
   try {
     const res = await fetch(url, {
       ...options,
       signal: AbortSignal.timeout(30_000),
     });
+    if (res.status === 429) {
+      applyBackoff();
+      log.warn(MODULE, `Rate limited (429) — backing off ${(backoffMs / 1000).toFixed(0)}s`);
+      return null;
+    }
     if (!res.ok) {
       log.error(MODULE, `HTTP ${res.status}: ${url.split('?')[0]}`);
       return null;
     }
+    resetBackoff();
     return (await res.json()) as T;
   } catch (err) {
     log.error(MODULE, `Fetch error: ${err}`);

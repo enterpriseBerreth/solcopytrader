@@ -69,15 +69,20 @@ export class WalletMonitor {
 
   private async pollAllWallets(): Promise<void> {
     this.pollCount++;
-    // Log heartbeat every 60 polls (~5 minutes at 5s interval)
-    if (this.pollCount % 60 === 0) {
+    // Log heartbeat every 20 polls (~5 minutes at 15s interval)
+    if (this.pollCount % 20 === 0) {
       log.info(MODULE, `Heartbeat — poll #${this.pollCount}, ${this.wallets.size} wallets, ${this.seenSignatures.size} seen sigs`);
     }
-    for (const wallet of this.wallets.values()) {
+    const walletList = Array.from(this.wallets.values());
+    for (let i = 0; i < walletList.length; i++) {
       try {
-        await this.pollWallet(wallet);
+        await this.pollWallet(walletList[i]);
+        // Stagger polls: wait 2s between wallets to avoid rate limits
+        if (i < walletList.length - 1) {
+          await new Promise(r => setTimeout(r, 2_000));
+        }
       } catch (err) {
-        log.error(MODULE, `Error polling ${wallet.label}: ${err}`);
+        log.error(MODULE, `Error polling ${walletList[i].label}: ${err}`);
       }
     }
   }
